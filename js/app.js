@@ -147,7 +147,8 @@
       colTotals: colTotals,
       grand: stat(kept),
       brands: Object.keys(allBrands).sort(),
-      orphan: orphan
+      orphan: orphan,
+      cards: kept
     };
   }
 
@@ -213,14 +214,14 @@
     var operating = find(/operating/i), canceled = find(/cancel/i), closed = find(/closed/i);
     var active = contact + nego + deal;
     var decided = operating + canceled + closed;
-    var winRate = decided ? Math.round((operating / decided) * 100) : null;
+    var winRate = decided ? Math.round(((operating + closed) / decided) * 100) : null;
 
     var items = [
       ['Total kartu', agg.grand.count, '', '#6366f1'],
       ['Pipeline aktif', active, 'Contact + On Nego + Deal', '#0c66e4'],
       ['Operating', operating, '', '#16a34a'],
       ['Canceled', canceled, '', '#dc2626'],
-      ['Win rate', winRate === null ? '—' : winRate + '%', 'Operating ÷ (Operating+Canceled+Closed)', '#d97706'],
+      ['Win rate', winRate === null ? '—' : winRate + '%', '(Operating+Already Closed) ÷ (Operating+Canceled+Already Closed)', '#d97706'],
       ['Kesiapan checklist', agg.grand.pct === null ? '—' : agg.grand.pct + '%', 'Rata-rata semua kartu', '#0891b2']
     ];
     return '<div class="kpis">' + items.map(function (it) {
@@ -257,6 +258,176 @@
         cardRowsHtml(cards) + '</section>';
     });
     return h || '<p class="muted">Belum ada kartu dengan checklist.</p>';
+  }
+
+  // ------------------------------------------------------------- geo / map
+
+  /* Parses "Key : value" lines out of a card description, e.g.
+     "Latitude : 7°34'39.1\"S" / "Longitude : 110°46'58.7\"E" / "Mall : ..." */
+  function parseCardMeta(desc) {
+    var meta = {};
+    String(desc || '').split(/\r?\n/).forEach(function (line) {
+      var m = /^\s*([A-Za-z][A-Za-z .]*?)\s*:\s*(.+?)\s*$/.exec(line);
+      if (m) meta[m[1].trim().toLowerCase()] = m[2].trim();
+    });
+    return {
+      lat: parseCoordToken(meta['latitude']),
+      lon: parseCoordToken(meta['longitude']),
+      mall: meta['mall'] || '',
+      city: meta['city'] || '',
+      region: meta['region'] || '',
+      category: meta['category'] || '',
+      priority: meta['priority'] || '',
+      targetOpening: meta['target opening'] || ''
+    };
+  }
+
+  /* Accepts either "7°34'39.1\"S" (DMS) or a plain decimal like "-7.578". */
+  function parseCoordToken(raw) {
+    if (!raw) return null;
+    raw = String(raw).trim();
+    var dms = /(-?\d+(?:\.\d+)?)\s*°\s*(\d+(?:\.\d+)?)?\s*['′]?\s*(\d+(?:\.\d+)?)?\s*["″]?\s*([NnSsEeWw])?/.exec(raw);
+    if (dms && (dms[2] !== undefined || dms[4] !== undefined)) {
+      var deg = parseFloat(dms[1]);
+      var min = dms[2] ? parseFloat(dms[2]) : 0;
+      var sec = dms[3] ? parseFloat(dms[3]) : 0;
+      var val = Math.abs(deg) + min / 60 + sec / 3600;
+      if (dms[4] && /[SW]/i.test(dms[4])) val = -val;
+      return val;
+    }
+    var dec = parseFloat(raw.replace(',', '.'));
+    return isNaN(dec) ? null : dec;
+  }
+
+  // Rough bounding box of Indonesia, used to place the stylised background
+  // islands and to project each card's lat/long onto the same canvas.
+  var MAP_W = 1000, MAP_H = 420;
+  var MAP_LON_MIN = 94, MAP_LON_MAX = 141.5, MAP_LAT_MAX = 7.5, MAP_LAT_MIN = -11.5;
+
+  function geoX(lon) { return (lon - MAP_LON_MIN) / (MAP_LON_MAX - MAP_LON_MIN) * MAP_W; }
+  function geoY(lat) { return (MAP_LAT_MAX - lat) / (MAP_LAT_MAX - MAP_LAT_MIN) * MAP_H; }
+  function inIndonesia(lat, lon) {
+    return lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon) &&
+      lat <= MAP_LAT_MAX + 1 && lat >= MAP_LAT_MIN - 1 && lon >= MAP_LON_MIN - 1 && lon <= MAP_LON_MAX + 1;
+  }
+
+  /* A soft, wobbly closed blob — used to draw stylised (not survey-accurate)
+     silhouettes for each island so the map has a recognisable archipelago
+     shape without shipping real coastline/GeoJSON data. */
+  function blobPath(cx, cy, rx, ry, rotDeg, lobes, wobble) {
+    var pts = 56, rot = rotDeg * Math.PI / 180, cos = Math.cos(rot), sin = Math.sin(rot), d = '';
+    for (var i = 0; i <= pts; i++) {
+      var t = (i / pts) * Math.PI * 2;
+      var r = 1 + wobble * Math.sin(t * lobes);
+      var lx = rx * r * Math.cos(t), ly = ry * r * Math.sin(t);
+      var x = cx + lx * cos - ly * sin, y = cy + lx * sin + ly * cos;
+      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    }
+    return d + 'Z';
+  }
+
+  var ISLANDS_SVG = (function () {
+    var p = [];
+    p.push(blobPath(140, 165, 72, 150, 20, 2, 0.12));   // Sumatera
+    p.push(blobPath(332, 325, 112, 27, 8, 2, 0.14));    // Jawa
+    p.push(blobPath(415, 158, 96, 88, 0, 5, 0.12));     // Kalimantan
+    p.push(blobPath(592, 205, 56, 70, 12, 3, 0.42));    // Sulawesi
+    p.push(blobPath(882, 268, 72, 96, 25, 2, 0.16));    // Papua (body)
+    p.push(blobPath(793, 192, 34, 27, -12, 2, 0.2));    // Papua (Bird's Head)
+    // Bali → Nusa Tenggara chain
+    [[443, 344], [489, 356], [536, 366], [584, 378], [634, 390]].forEach(function (c) {
+      p.push(blobPath(c[0], c[1], 17, 9, 8, 2, 0.1));
+    });
+    // Maluku scatter
+    [[665, 150, 16, 20], [700, 210, 20, 15], [672, 270, 14, 18], [735, 120, 13, 13], [720, 300, 15, 12]]
+      .forEach(function (c) { p.push(blobPath(c[0], c[1], c[2], c[3], 30, 4, 0.28)); });
+    return p.map(function (d) { return '<path class="island" d="' + d + '"/>'; }).join('');
+  })();
+
+  function geoPointsOf(cards) {
+    var out = [];
+    cards.forEach(function (c) {
+      var meta = parseCardMeta(c.desc);
+      if (!inIndonesia(meta.lat, meta.lon)) return;
+      out.push({
+        card: c, meta: meta, region: regionOf(c).name,
+        x: geoX(meta.lon), y: geoY(meta.lat)
+      });
+    });
+    return out;
+  }
+
+  /* Nudges label Y positions apart (within vertical x-bands) so nearby
+     markers don't render overlapping text; the dot itself stays put and a
+     thin leader line is drawn when a label had to move. */
+  function layoutLabels(points) {
+    var band = 78, buckets = {};
+    points.forEach(function (p) {
+      var k = Math.round(p.x / band);
+      (buckets[k] = buckets[k] || []).push(p);
+    });
+    Object.keys(buckets).forEach(function (k) {
+      var arr = buckets[k].sort(function (a, b) { return a.y - b.y; });
+      var lastY = -Infinity;
+      arr.forEach(function (p) {
+        var ly = p.y;
+        if (ly - lastY < 12) ly = lastY + 12;
+        p.labelY = ly;
+        lastY = ly;
+      });
+    });
+  }
+
+  function mapSvgHtml(points) {
+    layoutLabels(points);
+    var markers = points.map(function (p) {
+      var color = dotColor(p.region);
+      var leftSide = p.x > MAP_W * 0.72;
+      var anchor = leftSide ? 'end' : 'start';
+      var lx = leftSide ? p.x - 8 : p.x + 8;
+      var needsLine = Math.abs(p.labelY - p.y) > 4 || leftSide;
+      var name = p.card.name.length > 26 ? p.card.name.slice(0, 25) + '…' : p.card.name;
+      return '<g class="geo-dot" data-card="' + esc(p.card.id) + '" tabindex="0">' +
+        (needsLine ? '<line class="geo-line" x1="' + p.x.toFixed(1) + '" y1="' + p.y.toFixed(1) + '" x2="' + lx.toFixed(1) + '" y2="' + p.labelY.toFixed(1) + '"/>' : '') +
+        '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4.5" fill="' + color + '"/>' +
+        '<text class="geo-label" x="' + lx.toFixed(1) + '" y="' + p.labelY.toFixed(1) + '" text-anchor="' + anchor + '" dy="3">' + esc(name) + '</text>' +
+        '<title>' + esc(p.card.name) + (p.meta.mall ? ' · ' + esc(p.meta.mall) : '') + (p.meta.city ? ' · ' + esc(p.meta.city) : '') + '</title>' +
+        '</g>';
+    }).join('');
+    return '<svg class="pm-map" viewBox="0 0 ' + MAP_W + ' ' + MAP_H + '" xmlns="http://www.w3.org/2000/svg">' +
+      '<rect class="ocean" x="0" y="0" width="' + MAP_W + '" height="' + MAP_H + '" rx="16"/>' +
+      ISLANDS_SVG + markers + '</svg>';
+  }
+
+  function mapListHtml(points, missingCount) {
+    if (!points.length) {
+      return '<p class="muted">Belum ada kartu dengan koordinat Latitude/Longitude yang bisa dibaca di deskripsi.</p>';
+    }
+    var byRegion = {};
+    points.forEach(function (p) { (byRegion[p.region] = byRegion[p.region] || []).push(p); });
+    var names = Object.keys(byRegion).sort();
+    var h = '<div class="geolegend">';
+    names.forEach(function (name) {
+      h += '<section class="clgroup"><h3><span class="dot" style="background:' + dotColor(name) + '"></span>' + esc(name) +
+        ' <small>' + byRegion[name].length + ' lokasi</small></h3><ul class="cards">' +
+        byRegion[name].map(function (p) {
+          return '<li><a href="' + esc(p.card.url || '#') + '" target="_blank" rel="noopener" data-card="' + esc(p.card.id) + '">' + esc(p.card.name) + '</a>' +
+            (p.meta.mall || p.meta.city ? '<div class="geo-meta">' + esc([p.meta.mall, p.meta.city].filter(Boolean).join(' · ')) + '</div>' : '') +
+            '</li>';
+        }).join('') + '</ul></section>';
+    });
+    h += '</div>';
+    if (missingCount) {
+      h += '<p class="note">' + missingCount + ' kartu (di filter brand saat ini) belum punya koordinat Latitude/Longitude yang terbaca di deskripsi, jadi belum muncul di peta.</p>';
+    }
+    return h;
+  }
+
+  function mapTabHtml(agg) {
+    var points = geoPointsOf(agg.cards);
+    var missing = agg.cards.length - points.length;
+    return '<div class="mapwrap">' + mapSvgHtml(points) + '</div>' +
+      '<div class="detail-inner" style="padding-top:0">' + mapListHtml(points, missing) + '</div>';
   }
 
   var STYLES = [
@@ -341,7 +512,20 @@
     '.clgroup small{font-weight:500;color:var(--muted);margin-left:6px}',
 
     '.muted{color:var(--muted)}',
-    '.note{font-size:11px;color:var(--faint);margin-top:14px;line-height:1.6}'
+    '.note{font-size:11px;color:var(--faint);margin-top:14px;line-height:1.6}',
+
+    '.mapwrap{padding:14px;margin-bottom:16px}',
+    'svg.pm-map{width:100%;height:auto;display:block}',
+    '.pm-map .ocean{fill:#f3f5fc;stroke:#e7eaf5;stroke-width:1}',
+    '.pm-map .island{fill:#dfe6fb;stroke:#c3cdf0;stroke-width:1}',
+    '.pm-map .geo-line{stroke:#c3cce0;stroke-width:.8}',
+    '.pm-map .geo-label{font-size:9.5px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:#fff;stroke-width:3}',
+    '.pm-map .geo-dot{cursor:pointer}',
+    '.pm-map .geo-dot circle{stroke:#fff;stroke-width:1.4;transition:r .12s}',
+    '.pm-map .geo-dot:hover circle{r:6.5}',
+    '.pm-map .geo-dot:hover .geo-label{fill:var(--accent-2)}',
+    '.geolegend{margin-top:4px}',
+    '.geo-meta{font-size:11px;color:var(--muted);margin-top:-4px;margin-bottom:2px}'
   ].join('\n');
 
   /* opts: { el, lists, cards, boardName, onOpenCard, onRefresh } */
@@ -377,12 +561,15 @@
         '<div class="tabs">' +
         '<button data-tab="matrix" class="' + (state.tab === 'matrix' ? 'active' : '') + '">Matriks</button>' +
         '<button data-tab="checklist" class="' + (state.tab === 'checklist' ? 'active' : '') + '">Progress Checklist</button>' +
+        '<button data-tab="map" class="' + (state.tab === 'map' ? 'active' : '') + '">Peta</button>' +
         '</div>' +
         (state.tab === 'matrix'
           ? kpiHtml(agg) + '<div class="panel scroll">' + matrixHtml(agg) + '</div>' +
             '<div class="detail panel" id="pm-detail"><div class="detail-inner"><p class="muted">Klik salah satu angka di matriks untuk melihat daftar kartunya.</p></div></div>' +
             '<p class="note">Angka besar = jumlah kartu. Angka kecil + bar = rata-rata progress checklist. Kartu tanpa label bernomor masuk ke baris "Tanpa Region".</p>'
-          : '<div class="panel"><div class="detail-inner">' + checklistTabHtml(agg) + '</div></div>') +
+          : state.tab === 'checklist'
+          ? '<div class="panel"><div class="detail-inner">' + checklistTabHtml(agg) + '</div></div>'
+          : '<div class="panel">' + mapTabHtml(agg) + '</div>') +
         '</div>';
 
       el.querySelector('#pm-brand').onchange = function () {
@@ -415,6 +602,14 @@
       });
 
       bindCardLinks(el);
+
+      if (opts.onOpenCard) {
+        Array.prototype.forEach.call(el.querySelectorAll('.geo-dot[data-card]'), function (g) {
+          function openDot() { opts.onOpenCard(g.dataset.card); }
+          g.onclick = openDot;
+          g.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDot(); } };
+        });
+      }
     }
 
     function bindCardLinks(scope) {
@@ -452,6 +647,9 @@
   root.PipelineMonitor = {
     aggregate: aggregate,
     render: render,
-    _helpers: { regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber, hueFor: hueFor }
+    _helpers: {
+      regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber, hueFor: hueFor,
+      parseCoordToken: parseCoordToken, parseCardMeta: parseCardMeta, geoX: geoX, geoY: geoY
+    }
   };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
