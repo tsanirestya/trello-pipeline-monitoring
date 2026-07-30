@@ -6,7 +6,7 @@
 
   // ---------------------------------------------------------------- helpers
 
-  var REGION_RE = /^\s*(\d+)\s*[.)-]\s*(.+)$/; // "3. FROZENLAND 3 (SUMATERA 2)"
+    var REGION_RE = /^\s*(\d+)\s*[.,)-]\s*(.+)$/; // now also tolerates a comma separator, e.g. "1, FROZENLAND 1"
   var NO_REGION = 'Tanpa Region';
 
   function stripNumber(name) {
