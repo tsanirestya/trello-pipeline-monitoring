@@ -6,7 +6,7 @@
 
   // ---------------------------------------------------------------- helpers
 
-    var REGION_RE = /^\s*(\d+)\s*[.,)-]\s*(.+)$/; // now also tolerates a comma separator, e.g. "1, FROZENLAND 1"
+  var REGION_RE = /^\s*(\d+)\s*[.,)-]\s*(.+)$/; // "3. FROZENLAND 3 (SUMATERA 2)" — also tolerates a stray comma like "1, FROZENLAND 1"
   var NO_REGION = 'Tanpa Region';
 
   function stripNumber(name) {
@@ -60,6 +60,16 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+
+  /* Stable, deterministic accent color per region/brand name — same name always
+     gets the same hue, regardless of sort order or active filter. Purely decorative. */
+  function hueFor(name) {
+    var s = String(name || '');
+    var h = 0;
+    for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
+    return h % 360;
+  }
+  function dotColor(name) { return 'hsl(' + hueFor(name) + ', 62%, 46%)'; }
 
   // ------------------------------------------------------------- aggregate
 
@@ -143,13 +153,25 @@
 
   // ---------------------------------------------------------------- render
 
+  var ICON_MARK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+    '<rect x="2" y="10" width="5" height="12" rx="1.2" fill="currentColor" opacity=".95"/>' +
+    '<rect x="9.5" y="5" width="5" height="17" rx="1.2" fill="currentColor" opacity=".75"/>' +
+    '<rect x="17" y="2" width="5" height="20" rx="1.2" fill="currentColor" opacity=".5"/>' +
+    '</svg>';
+  var ICON_REFRESH = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M20 11A8 8 0 1 0 18.5 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>' +
+    '<path d="M20 5v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var ICON_DOWNLOAD = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
   function bar(pct) {
     if (pct === null) return '<div class="bar"><span class="empty">—</span></div>';
     return '<div class="bar bar-' + pctClass(pct) + '"><i style="width:' + pct + '%"></i></div>';
   }
 
   function cellHtml(st, regionName, stageId, stageName) {
-    if (!st.count) return '<td class="cell zero">0</td>';
+    if (!st.count) return '<td class="cell zero">–</td>';
     return '<td class="cell" data-region="' + esc(regionName) + '" data-stage="' + esc(stageId) +
       '" data-stagename="' + esc(stageName) + '" tabindex="0">' +
       '<b>' + st.count + '</b>' +
@@ -164,7 +186,7 @@
     h += '<th class="tot">Total</th></tr></thead><tbody>';
 
     agg.regions.forEach(function (r) {
-      h += '<tr><th class="rowhead">' + esc(r.name) + '</th>';
+      h += '<tr><th class="rowhead"><span class="dot" style="background:' + dotColor(r.name) + '"></span>' + esc(r.name) + '</th>';
       agg.stages.forEach(function (s) {
         h += cellHtml(r.stats[s.id], r.name, s.id, s.name);
       });
@@ -194,15 +216,15 @@
     var winRate = decided ? Math.round((operating / decided) * 100) : null;
 
     var items = [
-      ['Total kartu', agg.grand.count, ''],
-      ['Pipeline aktif', active, 'Contact + On Nego + Deal'],
-      ['Operating', operating, ''],
-      ['Canceled', canceled, ''],
-      ['Win rate', winRate === null ? '—' : winRate + '%', 'Operating ÷ (Operating+Canceled+Closed)'],
-      ['Kesiapan checklist', agg.grand.pct === null ? '—' : agg.grand.pct + '%', 'Rata-rata semua kartu']
+      ['Total kartu', agg.grand.count, '', '#6366f1'],
+      ['Pipeline aktif', active, 'Contact + On Nego + Deal', '#0c66e4'],
+      ['Operating', operating, '', '#16a34a'],
+      ['Canceled', canceled, '', '#dc2626'],
+      ['Win rate', winRate === null ? '—' : winRate + '%', 'Operating ÷ (Operating+Canceled+Closed)', '#d97706'],
+      ['Kesiapan checklist', agg.grand.pct === null ? '—' : agg.grand.pct + '%', 'Rata-rata semua kartu', '#0891b2']
     ];
     return '<div class="kpis">' + items.map(function (it) {
-      return '<div class="kpi" title="' + esc(it[2]) + '"><span>' + esc(it[0]) + '</span><strong>' + esc(it[1]) + '</strong></div>';
+      return '<div class="kpi" style="--k:' + it[3] + '" title="' + esc(it[2]) + '"><span>' + esc(it[0]) + '</span><strong>' + esc(it[1]) + '</strong></div>';
     }).join('') + '</div>';
   }
 
@@ -230,7 +252,7 @@
     agg.regions.forEach(function (r) {
       var cards = r.total.cards.filter(function (c) { return checklistOf(c).total > 0; });
       if (!cards.length) return;
-      h += '<section class="clgroup"><h3>' + esc(r.name) +
+      h += '<section class="clgroup"><h3><span class="dot" style="background:' + dotColor(r.name) + '"></span>' + esc(r.name) +
         ' <small>' + cards.length + ' kartu · ' + (r.total.pct === null ? '—' : r.total.pct + '%') + '</small></h3>' +
         cardRowsHtml(cards) + '</section>';
     });
@@ -238,54 +260,88 @@
   }
 
   var STYLES = [
-    ':root{color-scheme:light}',
+    ':root{color-scheme:light;',
+    '  --ink:#172b4d;--muted:#6b778c;--faint:#98a2b3;--line:#eceef2;--panel:#ffffff;--page:#f6f7fb;',
+    '  --accent:#4f46e5;--accent-2:#0c66e4;--good:#16a34a;--warn:#d97706;--bad:#dc2626;',
+    '  --radius:14px;--radius-sm:9px;',
+    '  --shadow-sm:0 1px 2px rgba(15,23,42,.05);',
+    '  --shadow-md:0 10px 28px rgba(15,23,42,.08),0 2px 6px rgba(15,23,42,.05);}',
     '*{box-sizing:border-box}',
-    'body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#172b4d;background:#fff}',
-    '.wrap{padding:14px 16px 40px}',
-    '.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}',
-    '.top h1{font-size:16px;margin:0;font-weight:600}',
+    'body{margin:0;background:var(--page);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}',
+    '.wrap{padding:22px 24px 48px;max-width:1280px;margin:0 auto}',
+
+    '.pm-header{display:flex;align-items:center;gap:12px;margin-bottom:20px}',
+    '.pm-mark{flex:none;width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:var(--shadow-sm)}',
+    '.pm-title{flex:1;min-width:0}',
+    '.pm-title h1{margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.pm-title p{margin:2px 0 0;font-size:11.5px;color:var(--muted)}',
+
     '.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
-    'select,button{font:inherit;border:1px solid #dfe1e6;background:#fff;border-radius:6px;padding:5px 9px;color:#172b4d;cursor:pointer}',
-    'button:hover,select:hover{background:#f4f5f7}',
-    'button.primary{background:#0c66e4;border-color:#0c66e4;color:#fff}',
-    '.tabs{display:flex;gap:4px;margin:0 0 12px;border-bottom:1px solid #dfe1e6}',
-    '.tabs button{border:0;border-radius:0;background:none;padding:7px 12px;color:#5e6c84;font-weight:600}',
-    '.tabs button.active{color:#0c66e4;box-shadow:inset 0 -2px 0 #0c66e4}',
-    '.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}',
-    '.kpi{background:#f4f5f7;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}',
-    '.kpi span{font-size:11px;color:#5e6c84;text-transform:uppercase;letter-spacing:.4px}',
-    '.kpi strong{font-size:20px;font-weight:600}',
-    'table.matrix{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}',
-    '.matrix th,.matrix td{border-bottom:1px solid #ebecf0;padding:7px 8px;text-align:center;vertical-align:middle}',
-    '.matrix thead th{background:#f4f5f7;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:#5e6c84;position:sticky;top:0;z-index:2}',
-    '.matrix .rowhead{text-align:left;font-weight:600;white-space:nowrap;background:#fff;position:sticky;left:0;z-index:1}',
-    '.matrix thead .rowhead{background:#f4f5f7;z-index:3}',
-    '.matrix td.cell{cursor:pointer;min-width:78px}',
-    '.matrix td.cell:hover{background:#e9f2ff}',
-    '.matrix td.zero{color:#b3bac5;cursor:default}',
-    '.matrix td.cell b{font-size:15px;display:block;line-height:1.1}',
-    '.matrix td.cell em{font-size:10px;color:#5e6c84;font-style:normal}',
-    '.matrix .tot{background:#fafbfc;font-weight:600}',
-    '.matrix tfoot td,.matrix tfoot th{background:#f4f5f7;font-weight:600}',
-    '.matrix td.sel{outline:2px solid #0c66e4;outline-offset:-2px;background:#e9f2ff}',
-    '.bar{position:relative;height:4px;border-radius:3px;background:#dfe1e6;margin:4px auto 0;overflow:hidden}',
-    '.bar i{position:absolute;left:0;top:0;bottom:0;display:block;border-radius:3px}',
-    '.bar-good i{background:#22a06b}.bar-warn i{background:#e2b203}.bar-bad i{background:#c9372c}',
-    '.bar .empty{font-size:9px;color:#b3bac5}',
-    '.detail{margin-top:16px;border-top:1px solid #dfe1e6;padding-top:12px}',
-    '.detail h2{font-size:13px;margin:0 0 8px}',
-    'ul.cards{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}',
-    'ul.cards li{border:1px solid #dfe1e6;border-radius:8px;padding:8px 10px}',
-    'ul.cards a{color:#0c66e4;text-decoration:none;font-weight:500;display:block;margin-bottom:6px}',
+    'select.pm-select{appearance:none;-webkit-appearance:none;font:inherit;font-weight:600;border:1px solid var(--line);background:#fff url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M1 1l4 4 4-4" stroke="%236b778c" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>\') no-repeat right 12px center;border-radius:999px;padding:8px 30px 8px 16px;color:var(--ink);cursor:pointer;box-shadow:var(--shadow-sm);transition:border-color .15s,box-shadow .15s}',
+    'select.pm-select:hover{border-color:#c7cce0}',
+    'button.pm-btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-weight:600;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 16px;color:var(--ink);cursor:pointer;box-shadow:var(--shadow-sm);transition:transform .12s,box-shadow .12s,border-color .12s}',
+    'button.pm-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-md);border-color:#d8dceb}',
+    'button.pm-btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));border-color:transparent;color:#fff}',
+
+    '.tabs{display:inline-flex;background:#eceef5;padding:4px;border-radius:999px;gap:2px;margin-bottom:20px}',
+    '.tabs button{border:0;border-radius:999px;background:transparent;padding:8px 18px;color:var(--muted);font-weight:700;font-size:12px;letter-spacing:.1px;cursor:pointer;transition:background .15s,color .15s}',
+    '.tabs button.active{background:#fff;color:var(--ink);box-shadow:var(--shadow-sm)}',
+
+    '.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}',
+    '.kpi{position:relative;overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px 14px;box-shadow:var(--shadow-sm);transition:transform .15s,box-shadow .15s}',
+    '.kpi::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--k,var(--accent))}',
+    '.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}',
+    '.kpi span{display:block;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}',
+    '.kpi strong{display:block;margin-top:8px;font-size:25px;font-weight:800;letter-spacing:-.02em;color:var(--ink)}',
+
+    '.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden}',
+    '.scroll{overflow:auto}',
+    '.scroll::-webkit-scrollbar{height:9px}',
+    '.scroll::-webkit-scrollbar-thumb{background:#d7dae5;border-radius:8px}',
+    '.scroll::-webkit-scrollbar-track{background:transparent}',
+
+    'table.matrix{border-collapse:collapse;width:100%;font-size:12.5px;min-width:640px}',
+    '.matrix th,.matrix td{padding:12px 12px;text-align:center;vertical-align:middle;border-bottom:1px solid var(--line)}',
+    '.matrix thead th{background:#fafbff;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;position:sticky;top:0;z-index:2;border-bottom:1px solid var(--line)}',
+    '.matrix .rowhead{text-align:left;font-weight:700;white-space:nowrap;background:var(--panel);position:sticky;left:0;z-index:1}',
+    '.matrix thead .rowhead{background:#fafbff;z-index:3}',
+    '.matrix .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;vertical-align:middle}',
+    '.matrix td.cell{cursor:pointer;min-width:86px;transition:background .12s}',
+    '.matrix td.cell:hover{background:#f1f4fd}',
+    '.matrix td.zero{color:#c7cce0;cursor:default}',
+    '.matrix td.cell b{font-size:16px;font-weight:800;display:block;line-height:1.15;letter-spacing:-.01em}',
+    '.matrix td.cell em{font-size:10.5px;color:var(--muted);font-style:normal;font-weight:600}',
+    '.matrix .tot{background:#fafbff;font-weight:700}',
+    '.matrix tfoot td,.matrix tfoot th{background:#f3f4fa;font-weight:800;border-top:1px solid #e3e6f0;border-bottom:none}',
+    '.matrix td.sel{background:#eef1ff;box-shadow:inset 0 0 0 2px var(--accent)}',
+
+    '.bar{position:relative;height:5px;border-radius:5px;background:#e9ebf2;margin:6px auto 0;overflow:hidden;min-width:52px}',
+    '.bar i{position:absolute;inset:0;border-radius:5px}',
+    '.bar-good i{background:linear-gradient(90deg,#34d399,#16a34a)}',
+    '.bar-warn i{background:linear-gradient(90deg,#fbbf24,#d97706)}',
+    '.bar-bad i{background:linear-gradient(90deg,#f87171,#dc2626)}',
+    '.bar .empty{font-size:9px;color:var(--faint)}',
+
+    '.detail{margin-top:20px}',
+    '.detail-inner{padding:18px 20px}',
+    '.detail h2{font-size:13.5px;margin:0 0 12px;font-weight:700}',
+    '.detail h2 .muted{font-weight:500}',
+
+    'ul.cards{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}',
+    'ul.cards li{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;background:#fff;transition:box-shadow .15s,transform .15s}',
+    'ul.cards li:hover{box-shadow:var(--shadow-md);transform:translateY(-1px)}',
+    'ul.cards a{color:var(--accent-2);text-decoration:none;font-weight:600;display:block;margin-bottom:8px;font-size:12.5px}',
     'ul.cards a:hover{text-decoration:underline}',
-    '.clwrap{display:flex;align-items:center;gap:8px}',
+    '.clwrap{display:flex;align-items:center;gap:10px}',
     '.clwrap .bar{flex:1;margin:0}',
-    '.clnum{font-size:11px;color:#5e6c84;white-space:nowrap}',
-    '.clgroup{margin-bottom:18px}',
-    '.clgroup h3{font-size:13px;margin:0 0 8px}',
-    '.clgroup small{font-weight:400;color:#5e6c84}',
-    '.muted{color:#5e6c84}',
-    '.note{font-size:11px;color:#5e6c84;margin-top:10px}'
+    '.clnum{font-size:11px;color:var(--muted);white-space:nowrap;font-weight:600}',
+
+    '.clgroup{margin-bottom:22px}',
+    '.clgroup h3{font-size:13px;margin:0 0 10px;font-weight:700;display:flex;align-items:center}',
+    '.clgroup small{font-weight:500;color:var(--muted);margin-left:6px}',
+
+    '.muted{color:var(--muted)}',
+    '.note{font-size:11px;color:var(--faint);margin-top:14px;line-height:1.6}'
   ].join('\n');
 
   /* opts: { el, lists, cards, boardName, onOpenCard, onRefresh } */
@@ -309,21 +365,24 @@
 
       el.innerHTML =
         '<div class="wrap">' +
-        '<div class="top"><h1>' + esc(opts.boardName || 'Pipeline') + '</h1>' +
+        '<div class="pm-header">' +
+        '<div class="pm-mark">' + ICON_MARK + '</div>' +
+        '<div class="pm-title"><h1>' + esc(opts.boardName || 'Pipeline') + '</h1>' +
+        '<p>' + agg.grand.count + ' kartu · ' + agg.regions.length + ' region · diperbarui otomatis dari board Trello</p></div>' +
         '<div class="controls">' +
-        '<select id="pm-brand">' + brandOpts + '</select>' +
-        '<button id="pm-csv">Export CSV</button>' +
-        '<button id="pm-refresh" class="primary">Refresh</button>' +
+        '<select id="pm-brand" class="pm-select">' + brandOpts + '</select>' +
+        '<button id="pm-csv" class="pm-btn">' + ICON_DOWNLOAD + ' Export CSV</button>' +
+        '<button id="pm-refresh" class="pm-btn primary">' + ICON_REFRESH + ' Refresh</button>' +
         '</div></div>' +
         '<div class="tabs">' +
         '<button data-tab="matrix" class="' + (state.tab === 'matrix' ? 'active' : '') + '">Matriks</button>' +
         '<button data-tab="checklist" class="' + (state.tab === 'checklist' ? 'active' : '') + '">Progress Checklist</button>' +
         '</div>' +
         (state.tab === 'matrix'
-          ? kpiHtml(agg) + '<div class="scroll">' + matrixHtml(agg) + '</div>' +
-            '<div class="detail" id="pm-detail"><p class="muted">Klik salah satu angka di matriks untuk melihat daftar kartunya.</p></div>' +
-            '<p class="note">Angka besar = jumlah kartu. Angka kecil + bar = rata-rata progress checklist. Kartu tanpa label bernomor masuk ke baris “Tanpa Region”.</p>'
-          : checklistTabHtml(agg)) +
+          ? kpiHtml(agg) + '<div class="panel scroll">' + matrixHtml(agg) + '</div>' +
+            '<div class="detail panel" id="pm-detail"><div class="detail-inner"><p class="muted">Klik salah satu angka di matriks untuk melihat daftar kartunya.</p></div></div>' +
+            '<p class="note">Angka besar = jumlah kartu. Angka kecil + bar = rata-rata progress checklist. Kartu tanpa label bernomor masuk ke baris "Tanpa Region".</p>'
+          : '<div class="panel"><div class="detail-inner">' + checklistTabHtml(agg) + '</div></div>') +
         '</div>';
 
       el.querySelector('#pm-brand').onchange = function () {
@@ -344,9 +403,10 @@
           var r = agg.regions.filter(function (x) { return x.name === td.dataset.region; })[0];
           var st = r.stats[td.dataset.stage];
           var d = el.querySelector('#pm-detail');
-          d.innerHTML = '<h2>' + esc(td.dataset.region) + ' — ' + esc(td.dataset.stagename) +
+          d.innerHTML = '<div class="detail-inner"><h2><span class="dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;vertical-align:middle;background:' +
+            dotColor(td.dataset.region) + '"></span>' + esc(td.dataset.region) + ' — ' + esc(td.dataset.stagename) +
             ' <span class="muted">(' + st.count + ' kartu' +
-            (st.pct === null ? '' : ', kesiapan ' + st.pct + '%') + ')</span></h2>' + cardRowsHtml(st.cards);
+            (st.pct === null ? '' : ', kesiapan ' + st.pct + '%') + ')</span></h2>' + cardRowsHtml(st.cards) + '</div>';
           bindCardLinks(d);
           if (d.scrollIntoView) d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
@@ -392,6 +452,6 @@
   root.PipelineMonitor = {
     aggregate: aggregate,
     render: render,
-    _helpers: { regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber }
+    _helpers: { regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber, hueFor: hueFor }
   };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
