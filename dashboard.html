@@ -23,7 +23,7 @@
       return Promise.all([
         t.board('id', 'name'),
         t.lists('id', 'name'),
-        t.cards('id', 'name', 'idList', 'labels', 'badges', 'url', 'closed')
+        t.cards('id', 'name', 'idList', 'labels', 'badges', 'url', 'closed', 'desc')
       ]).then(function (res) {
         var board = res[0], lists = res[1], cards = res[2];
         cards = cards.filter(function (c) { return !c.closed; });
