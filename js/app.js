@@ -311,38 +311,57 @@
       lat <= MAP_LAT_MAX + 1 && lat >= MAP_LAT_MIN - 1 && lon >= MAP_LON_MIN - 1 && lon <= MAP_LON_MAX + 1;
   }
 
-  /* A soft, wobbly closed blob — used to draw stylised (not survey-accurate)
-     silhouettes for each island so the map has a recognisable archipelago
-     shape without shipping real coastline/GeoJSON data. */
-  function blobPath(cx, cy, rx, ry, rotDeg, lobes, wobble) {
-    var pts = 56, rot = rotDeg * Math.PI / 180, cos = Math.cos(rot), sin = Math.sin(rot), d = '';
-    for (var i = 0; i <= pts; i++) {
-      var t = (i / pts) * Math.PI * 2;
-      var r = 1 + wobble * Math.sin(t * lobes);
-      var lx = rx * r * Math.cos(t), ly = ry * r * Math.sin(t);
-      var x = cx + lx * cos - ly * sin, y = cy + lx * sin + ly * cos;
-      d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  /* Draws a smooth closed shape through a hand-plotted set of coastline
+     points (Catmull-Rom-ish: quadratic curves through edge midpoints).
+     Looks like an actual, if stylised, island outline rather than a
+     generic blob — no external map/GeoJSON data involved. */
+  function smoothPoly(points) {
+    var n = points.length;
+    var mid = function (a, b) { return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; };
+    var m0 = mid(points[n - 1], points[0]);
+    var d = 'M' + m0[0].toFixed(1) + ',' + m0[1].toFixed(1) + ' ';
+    for (var i = 0; i < n; i++) {
+      var cur = points[i], next = points[(i + 1) % n], m = mid(cur, next);
+      d += 'Q' + cur[0].toFixed(1) + ',' + cur[1].toFixed(1) + ' ' + m[0].toFixed(1) + ',' + m[1].toFixed(1) + ' ';
     }
     return d + 'Z';
   }
 
-  var ISLANDS_SVG = (function () {
-    var p = [];
-    p.push(blobPath(140, 165, 72, 150, 20, 2, 0.12));   // Sumatera
-    p.push(blobPath(332, 325, 112, 27, 8, 2, 0.14));    // Jawa
-    p.push(blobPath(415, 158, 96, 88, 0, 5, 0.12));     // Kalimantan
-    p.push(blobPath(592, 205, 56, 70, 12, 3, 0.42));    // Sulawesi
-    p.push(blobPath(882, 268, 72, 96, 25, 2, 0.16));    // Papua (body)
-    p.push(blobPath(793, 192, 34, 27, -12, 2, 0.2));    // Papua (Bird's Head)
-    // Bali → Nusa Tenggara chain
-    [[443, 344], [489, 356], [536, 366], [584, 378], [634, 390]].forEach(function (c) {
-      p.push(blobPath(c[0], c[1], 17, 9, 8, 2, 0.1));
-    });
-    // Maluku scatter
-    [[665, 150, 16, 20], [700, 210, 20, 15], [672, 270, 14, 18], [735, 120, 13, 13], [720, 300, 15, 12]]
-      .forEach(function (c) { p.push(blobPath(c[0], c[1], c[2], c[3], 30, 4, 0.28)); });
-    return p.map(function (d) { return '<path class="island" d="' + d + '"/>'; }).join('');
-  })();
+  // Real Indonesia coastline data (simplified via Douglas-Peucker), projected
+  // through geoX/geoY so every island lines up with real card coordinates.
+  // Source: public-domain-derived country boundary coordinates (Natural Earth lineage).
+  var ISLAND_SHAPES = [
+    // Sumba
+    [[562.4,392.1],[553.6,392.6],[525.6,377.1],[545.3,372.7],[556.3,379.5],[563.7,386.2],[562.4,392.1]],
+    // Timor
+    [[640.8,389.9],[622.7,394.8],[620.2,392.1],[622.1,384.6],[631.2,371.1],[652,362.4],[654.1,366.7],[654.5,373.4],[640.8,389.9]],
+    // Sumbawa
+    [[503.2,344.7],[510.7,350.6],[523.8,348.8],[529,358.2],[490.1,365.6],[478.7,365.5],[486,352.7],[497.5,352.6],[503.2,344.7]],
+    // Flores
+    [[608.5,344.7],[605.4,357],[573.8,363.3],[545.8,360.5],[545.7,352.5],[562.4,347.9],[575.6,354.5],[589.6,352.8],[608.5,344.7]],
+    // Jawa & Bali
+    [[307.9,315.6],[348.2,317.8],[352.8,308.7],[391.9,319.3],[399.6,333.7],[431.1,337.7],[457,350.8],[432.9,359.3],[409.8,350.3],[390.7,350.9],[368.9,349.3],[349.2,345.3],[324.8,336.9],[309.3,334.7],[300.6,337.5],[262.2,328.4],[258.5,318.9],[239.3,317.2],[253.7,296.1],[279.3,297.4],[296.3,306.1],[305,307.7],[307.9,315.6]],
+    // Kai
+    [[857.4,303.2],[846.5,318.2],[844.5,301.6],[852.6,286.2],[857.4,292.6],[857.4,303.2]],
+    // Ambon
+    [[700,242.3],[692.1,249.6],[677.6,245.5],[673.5,236],[694.8,235],[700,242.3]],
+    // Seram
+    [[767.8,234.2],[775.5,251.1],[757.7,242],[740.1,240.1],[728.2,241.6],[713.7,240.8],[718.7,228.6],[744.7,227.7],[767.8,234.2]],
+    // Papua
+    [[845.1,191.3],[851,227],[872.8,240.2],[890.4,216.8],[914.5,203.4],[933.3,203.4],[966.9,219],[989.5,223.3],[990.2,367.3],[971.4,349.2],[950.1,344.8],[944.9,351.1],[918.2,351.7],[927.1,333.7],[940.4,327.6],[934.9,303.6],[924.8,285],[884,266.3],[866.6,264.4],[835,244],[828.8,254.8],[820.7,256.7],[815.9,248.6],[815.9,239],[799.8,228.1],[822.5,220.2],[837.5,220.6],[835.7,214.7],[804.9,214.7],[796.6,201.5],[777.7,197.5],[768.8,186.5],[797.2,181.2],[808,174],[841.8,183],[845.1,191.3]],
+    // Sulawesi
+    [[657.7,134.4],[640.8,156.3],[625,160.6],[604.7,156.3],[569.6,157.4],[551.2,160.5],[548.2,177.3],[567.1,196.9],[578.4,186.9],[617.7,179.4],[616,189.6],[606.8,186.4],[597.7,199.3],[579.1,207.9],[599,236.2],[595.2,243.8],[614.1,269.3],[613.9,283.8],[602.7,290.3],[594.5,282.6],[604.6,264.5],[584,273],[578.7,266.9],[581.5,258.4],[566.3,245.4],[567.8,223.9],[553.8,230.6],[555.6,256.4],[556.4,288],[543.1,291.2],[534,284.7],[540.1,264.4],[536.8,243],[528,242.9],[521.4,227.7],[530.1,213.3],[533.1,195.7],[543.7,162.4],[548.1,153.3],[566,136.8],[582.5,143.4],[609,146.4],[633.2,145.5],[654,129.5],[657.7,134.4]],
+    // Halmahera
+    [[730.3,140.8],[729.2,160.1],[718.3,157.9],[715.1,171.4],[723.8,183],[717.9,185.7],[709.4,171.7],[703.1,143.4],[707.4,125.8],[714.4,117.7],[715.9,129.8],[728.3,131.7],[730.3,140.8]],
+    // Kalimantan
+    [[502.6,125.4],[526.2,145.8],[501.3,148.5],[494.3,163.5],[495.2,183.6],[474.9,198.7],[474.4,220.7],[466.3,254.5],[463.2,246.6],[439.3,256.6],[430.9,243.1],[415.9,241.8],[405.4,234.7],[380.4,242.7],[372.7,232],[358.9,233.2],[341.6,230.6],[338.3,201],[327.8,194.9],[317.7,175.9],[314.8,156.6],[317.2,136.1],[329.8,121.4],[333.3,136.2],[347.7,148.7],[361.2,144.2],[374.7,145.8],[387,134.6],[397,132.7],[417,138.9],[434.1,134.2],[444.9,103.4],[453,95.7],[460.3,70.6],[484.5,70.6],[502.8,74.3],[490.8,94.3],[506.3,115.2],[502.6,125.4]],
+    // Sumatera
+    [[248.8,295.2],[225.5,295.6],[207.8,277.1],[180.7,259.1],[171.7,245.7],[155.8,227.7],[145.3,211.1],[129.3,180.2],[110.8,161.7],[104.6,142.7],[96.9,125.5],[77.9,111.6],[66.9,92.6],[51,80.3],[29.1,55.9],[27.2,44.7],[40.8,45.5],[73.4,49.8],[92,71.4],[108.3,86.4],[119.9,95.6],[139.8,119.4],[161.2,119.7],[178.9,134.9],[191.1,153.4],[207.1,163.5],[198.7,181.5],[210.8,189.2],[218.3,189.8],[221.9,205.2],[229.2,217.5],[244.7,219.5],[254.9,233.5],[249.6,261],[248.8,295.2]]
+  ];
+
+  var ISLANDS_SVG = ISLAND_SHAPES.map(function (pts) {
+    return '<path class="island" d="' + smoothPoly(pts) + '"/>';
+  }).join('');
 
   function geoPointsOf(cards) {
     var out = [];
@@ -357,24 +376,40 @@
     return out;
   }
 
-  /* Nudges label Y positions apart (within vertical x-bands) so nearby
-     markers don't render overlapping text; the dot itself stays put and a
-     thin leader line is drawn when a label had to move. */
+  /* Rough label width estimate for a 9.5px bold sans-serif label — used only
+     to decide when two labels' boxes would overlap, not for exact layout. */
+  function estimateLabelWidth(s) { return s.length * 5.4 + 10; }
+
+  /* Global label de-collision: sorts every marker top-to-bottom and pushes a
+     label straight down until its estimated box no longer overlaps any
+     already-placed label (checked on both X and Y, not just same column), so
+     dense clusters (e.g. Sulawesi/Maluku) stop rendering overlapping text.
+     The dot itself never moves; a thin leader line is drawn whenever a label
+     had to shift away from its dot. */
   function layoutLabels(points) {
-    var band = 78, buckets = {};
     points.forEach(function (p) {
-      var k = Math.round(p.x / band);
-      (buckets[k] = buckets[k] || []).push(p);
+      p.leftSide = p.x > MAP_W * 0.72;
+      p.anchor = p.leftSide ? 'end' : 'start';
+      p.lx = p.leftSide ? p.x - 8 : p.x + 8;
+      p.dispName = p.card.name.length > 26 ? p.card.name.slice(0, 25) + '…' : p.card.name;
+      p.labelW = estimateLabelWidth(p.dispName);
     });
-    Object.keys(buckets).forEach(function (k) {
-      var arr = buckets[k].sort(function (a, b) { return a.y - b.y; });
-      var lastY = -Infinity;
-      arr.forEach(function (p) {
-        var ly = p.y;
-        if (ly - lastY < 12) ly = lastY + 12;
-        p.labelY = ly;
-        lastY = ly;
-      });
+    var minGap = 13, pad = 6;
+    var placed = [];
+    points.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (p) {
+      var boxLeft = p.leftSide ? p.lx - p.labelW : p.lx;
+      var boxRight = p.leftSide ? p.lx : p.lx + p.labelW;
+      var y = p.y, moved = true, guard = 0;
+      while (moved && guard++ < 200) {
+        moved = false;
+        for (var i = 0; i < placed.length; i++) {
+          var q = placed[i];
+          var xOverlap = boxLeft < q.right + pad && boxRight > q.left - pad;
+          if (xOverlap && Math.abs(y - q.y) < minGap) { y = q.y + minGap; moved = true; }
+        }
+      }
+      p.labelY = y;
+      placed.push({ y: y, left: boxLeft, right: boxRight });
     });
   }
 
@@ -382,15 +417,11 @@
     layoutLabels(points);
     var markers = points.map(function (p) {
       var color = dotColor(p.region);
-      var leftSide = p.x > MAP_W * 0.72;
-      var anchor = leftSide ? 'end' : 'start';
-      var lx = leftSide ? p.x - 8 : p.x + 8;
-      var needsLine = Math.abs(p.labelY - p.y) > 4 || leftSide;
-      var name = p.card.name.length > 26 ? p.card.name.slice(0, 25) + '…' : p.card.name;
+      var needsLine = Math.abs(p.labelY - p.y) > 4 || p.leftSide;
       return '<g class="geo-dot" data-card="' + esc(p.card.id) + '" tabindex="0">' +
-        (needsLine ? '<line class="geo-line" x1="' + p.x.toFixed(1) + '" y1="' + p.y.toFixed(1) + '" x2="' + lx.toFixed(1) + '" y2="' + p.labelY.toFixed(1) + '"/>' : '') +
+        (needsLine ? '<line class="geo-line" x1="' + p.x.toFixed(1) + '" y1="' + p.y.toFixed(1) + '" x2="' + p.lx.toFixed(1) + '" y2="' + p.labelY.toFixed(1) + '"/>' : '') +
         '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="4.5" fill="' + color + '"/>' +
-        '<text class="geo-label" x="' + lx.toFixed(1) + '" y="' + p.labelY.toFixed(1) + '" text-anchor="' + anchor + '" dy="3">' + esc(name) + '</text>' +
+        '<text class="geo-label" x="' + p.lx.toFixed(1) + '" y="' + p.labelY.toFixed(1) + '" text-anchor="' + p.anchor + '" dy="3">' + esc(p.dispName) + '</text>' +
         '<title>' + esc(p.card.name) + (p.meta.mall ? ' · ' + esc(p.meta.mall) : '') + (p.meta.city ? ' · ' + esc(p.meta.city) : '') + '</title>' +
         '</g>';
     }).join('');
