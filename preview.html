@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pipeline Monitor — Preview (data contoh)</title>
+  <script src="./js/app.js"></script>
+  <style>
+    :root { color-scheme: light }
+    body { margin: 0 }
+    .banner { background: #fff7d6; border-bottom: 1px solid #f5cd47; padding: 8px 16px;
+      font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #7f5f01 }
+  </style>
+</head>
+<body>
+  <div class="banner">Mode preview — memakai data contoh, bukan data Trello asli. Buka file ini di browser untuk melihat tampilan Power-Up.</div>
+  <div id="root"></div>
+
+  <script>
+    var LISTS = [
+      { id: 'l1', name: '1. CONTACT' },
+      { id: 'l2', name: '2. ON NEGO' },
+      { id: 'l3', name: '3. DEAL' },
+      { id: 'l4', name: '4. OPERATING' },
+      { id: 'l5', name: '5. CANCELED' },
+      { id: 'l6', name: '6. ALREADY CLOSED' }
+    ];
+
+    var R1 = { name: '1. FROZENLAND 1 (SUMATERA 1)', color: 'red' };
+    var R2 = { name: '2. FROZENLAND 2 (KALIMANTAN)', color: 'sky' };
+    var R3 = { name: '3. FROZENLAND 3 (SUMATERA 2)', color: 'yellow' };
+    var R4 = { name: '4. FROZENLAND 4 (JAWA)', color: 'purple' };
+    var BF = { name: 'FROZENLAND', color: 'blue' };
+    var BS = { name: 'SPLASHBOM', color: 'lime' };
+
+    function card(id, name, idList, labels, done, total) {
+      return {
+        id: id, name: name, idList: idList, labels: labels,
+        badges: { checkItems: total || 0, checkItemsChecked: done || 0 },
+        url: 'https://trello.com/c/' + id, closed: false
+      };
+    }
+
+    var CARDS = [
+      card('c1', 'Lippo Plaza Kendari', 'l1', [], 4, 8),
+      card('c2', 'Citiemart Swalayan Bitung', 'l1', [], 0, 0),
+      card('c3', 'SPLASHBOM - Citimall Ketapang', 'l1', [BS], 0, 0),
+      card('c4', 'Luwes Gentan', 'l2', [R4, BF], 0, 0),
+      card('c5', 'Citimall Prabumulih', 'l2', [R3, BF], 4, 8),
+      card('c6', 'Sallo Mall Sengkang', 'l3', [], 3, 14),
+      card('c7', 'FL 4 - PLAZA LAMONGAN', 'l4', [R4, BF], 15, 15),
+      card('c8', 'FL 3 - MALL MANDAU CITY', 'l4', [R3, BF], 14, 14),
+      card('c9', 'FL 2 - CITIMALL SAMPIT', 'l4', [BF, R2], 14, 14),
+      card('c10', 'FL 1 - TRANSMART PANGKALPINANG', 'l4', [R1, BF], 14, 14),
+      card('c11', 'FL 4 - ROXY JEMBER', 'l5', [R4, BF], 2, 14),
+      card('c12', 'FL 1 - CITIMALL BINJAI', 'l5', [R1, BF], 2, 14),
+      card('c13', 'LF 3 - RAMAYANA PANAM', 'l5', [R3, BF], 1, 15),
+      card('c14', 'FL 2 - CITIMALL BONTANG', 'l5', [BF, R2], 0, 14),
+      card('c15', 'FL 4 - RAMAYANA MADIUN', 'l5', [R4, BF], 0, 14),
+      card('c16', 'SPLASHBOM - Transpark Bekasi', 'l5', [BS], 0, 0),
+      card('c17', 'FL 1 - IRIAN SIANTAR', 'l6', [R1, BF], 0, 14),
+      card('c18', 'FL 3 - RAMAYANA TEBING TINGGI', 'l6', [R3, BF], 14, 14),
+      card('c19', 'FL 4 - TRANSMART PEKALONGAN', 'l6', [R4, BF], 0, 14),
+      card('c20', 'FL 2 - CITIMALL KETAPANG', 'l6', [BF, R2], 0, 14)
+    ];
+
+    PipelineMonitor.render({
+      el: document.getElementById('root'),
+      lists: LISTS,
+      cards: CARDS,
+      boardName: 'NEW INITIATIVES PIPELINE (preview)',
+      onRefresh: function () { alert('Di dalam Trello, tombol ini menarik ulang data board.'); }
+    });
+  </script>
+</body>
+</html>

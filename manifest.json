@@ -1,0 +1,17 @@
+{
+  "manifestVersion": 1,
+  "name": "Pipeline Monitor",
+  "details": "Monitoring pipeline per region x stage, lengkap dengan progress checklist tiap kartu.",
+  "author": "Tsani",
+  "capabilities": [
+    "board-buttons"
+  ],
+  "connectors": {
+    "iframe": {
+      "url": "./index.html"
+    }
+  },
+  "icon": {
+    "url": "./icon.svg"
+  }
+}
