@@ -351,6 +351,25 @@
     return { icon: icon, text: text.trim() };
   }
 
+  /* Only comments and stage moves count as "meaningful" for the at-a-glance
+     activity line — administrative edits (description tweaks, attachments,
+     label/member changes, checklist ticks) are real dateLastActivity bumps
+     but shouldn't bury a real comment that happened a bit earlier. Trello
+     returns actions newest-first, so this walks forward until it finds one. */
+  function isMeaningfulAction(a) {
+    if (!a || !a.type) return false;
+    if (a.type === 'commentCard') return true;
+    if (a.type === 'updateCard' && a.data && a.data.listBefore && a.data.listAfter) return true;
+    return false;
+  }
+  function pickMeaningfulAction(actions) {
+    if (!actions) return null;
+    for (var i = 0; i < actions.length; i++) {
+      if (isMeaningfulAction(actions[i])) return actions[i];
+    }
+    return null;
+  }
+
   /* Runs `worker` over `items` with at most `n` in flight at once. */
   function runPool(items, worker, n) {
     var i = 0, active = 0;
@@ -380,13 +399,17 @@
     var p = t.getRestApi().getToken().then(function (token) {
       if (!token) return { state: 'unauthorized', at: Date.now() };
       var key = (typeof TRELLO_APP_KEY !== 'undefined' && TRELLO_APP_KEY) || '';
+      // filter to comments + card updates (list moves live inside updateCard),
+      // and pull a bit of history so a real comment isn't hidden behind a
+      // more recent but administrative edit (see isMeaningfulAction above).
       var url = 'https://api.trello.com/1/cards/' + encodeURIComponent(cardId) +
-        '/actions?filter=all&limit=1&key=' + encodeURIComponent(key) + '&token=' + encodeURIComponent(token);
+        '/actions?filter=commentCard,updateCard&limit=15&key=' + encodeURIComponent(key) + '&token=' + encodeURIComponent(token);
       return fetch(url).then(function (res) {
         if (!res.ok) throw new Error('http ' + res.status);
         return res.json();
       }).then(function (actions) {
-        var entry = { state: 'ok', at: Date.now(), summary: summarizeAction(actions && actions[0]) };
+        var picked = pickMeaningfulAction(actions);
+        var entry = { state: 'ok', at: Date.now(), summary: picked ? summarizeAction(picked) : null };
         activityCache[cardId] = entry;
         return entry;
       }).catch(function () {
@@ -423,6 +446,8 @@
         return fetchCardActivity(t, el.dataset.card).then(function (entry) {
           if (entry.state === 'ok' && entry.summary) {
             el.innerHTML = '<span class="act-icon">' + esc(entry.summary.icon) + '</span><span class="act-text">' + esc(trunc(entry.summary.text, 72)) + '</span>';
+          } else if (entry.state === 'ok') {
+            el.innerHTML = '<span class="muted">Belum ada komentar/perpindahan stage</span>';
           } else {
             el.innerHTML = '<span class="muted">Tidak ada aktivitas terbaca</span>';
           }
@@ -884,7 +909,8 @@
     _helpers: {
       regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber, hueFor: hueFor,
       parseCoordToken: parseCoordToken, parseCardMeta: parseCardMeta, geoX: geoX, geoY: geoY,
-      relativeTime: relativeTime, isStale: isStale, summarizeAction: summarizeAction, cardRowsHtml: cardRowsHtml
+      relativeTime: relativeTime, isStale: isStale, summarizeAction: summarizeAction, cardRowsHtml: cardRowsHtml,
+      pickMeaningfulAction: pickMeaningfulAction, isMeaningfulAction: isMeaningfulAction
     }
   };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
