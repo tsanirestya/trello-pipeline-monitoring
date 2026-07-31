@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pipeline Monitor</title>
   <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="./js/config.js"></script>
   <script src="./js/app.js"></script>
   <style>
     :root { color-scheme: light }
@@ -17,13 +18,13 @@
   <div id="root"><div id="loading">Memuat data board…</div></div>
 
   <script>
-    var t = TrelloPowerUp.iframe();
+    var t = TrelloPowerUp.iframe({ appKey: TRELLO_APP_KEY, appName: TRELLO_APP_NAME });
 
     function load() {
       return Promise.all([
         t.board('id', 'name'),
         t.lists('id', 'name'),
-        t.cards('id', 'name', 'idList', 'labels', 'badges', 'url', 'closed', 'desc')
+        t.cards('id', 'name', 'idList', 'labels', 'badges', 'url', 'closed', 'desc', 'dateLastActivity')
       ]).then(function (res) {
         var board = res[0], lists = res[1], cards = res[2];
         cards = cards.filter(function (c) { return !c.closed; });
@@ -33,6 +34,7 @@
           lists: lists,
           cards: cards,
           boardName: board.name,
+          t: t,
           onOpenCard: function (id) { t.showCard(id); },
           onRefresh: function () {
             document.getElementById('root').innerHTML = '<div id="loading">Memuat ulang…</div>';

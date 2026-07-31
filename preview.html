@@ -33,35 +33,38 @@
     var BF = { name: 'FROZENLAND', color: 'blue' };
     var BS = { name: 'SPLASHBOM', color: 'lime' };
 
-    function card(id, name, idList, labels, done, total) {
+    function card(id, name, idList, labels, done, total, hoursAgo) {
       return {
         id: id, name: name, idList: idList, labels: labels,
         badges: { checkItems: total || 0, checkItemsChecked: done || 0 },
-        url: 'https://trello.com/c/' + id, closed: false
+        url: 'https://trello.com/c/' + id, closed: false,
+        dateLastActivity: new Date(Date.now() - (hoursAgo || 0) * 3600000).toISOString()
       };
     }
 
+    // Last arg = jam sejak update terakhir (dipakai untuk contoh sort "terbaru"
+    // dan badge "Stale" — beberapa sengaja > 14 hari = 336 jam).
     var CARDS = [
-      card('c1', 'Lippo Plaza Kendari', 'l1', [], 4, 8),
-      card('c2', 'Citiemart Swalayan Bitung', 'l1', [], 0, 0),
-      card('c3', 'SPLASHBOM - Citimall Ketapang', 'l1', [BS], 0, 0),
-      card('c4', 'Luwes Gentan', 'l2', [R4, BF], 0, 0),
-      card('c5', 'Citimall Prabumulih', 'l2', [R3, BF], 4, 8),
-      card('c6', 'Sallo Mall Sengkang', 'l3', [], 3, 14),
-      card('c7', 'FL 4 - PLAZA LAMONGAN', 'l4', [R4, BF], 15, 15),
-      card('c8', 'FL 3 - MALL MANDAU CITY', 'l4', [R3, BF], 14, 14),
-      card('c9', 'FL 2 - CITIMALL SAMPIT', 'l4', [BF, R2], 14, 14),
-      card('c10', 'FL 1 - TRANSMART PANGKALPINANG', 'l4', [R1, BF], 14, 14),
-      card('c11', 'FL 4 - ROXY JEMBER', 'l5', [R4, BF], 2, 14),
-      card('c12', 'FL 1 - CITIMALL BINJAI', 'l5', [R1, BF], 2, 14),
-      card('c13', 'LF 3 - RAMAYANA PANAM', 'l5', [R3, BF], 1, 15),
-      card('c14', 'FL 2 - CITIMALL BONTANG', 'l5', [BF, R2], 0, 14),
-      card('c15', 'FL 4 - RAMAYANA MADIUN', 'l5', [R4, BF], 0, 14),
-      card('c16', 'SPLASHBOM - Transpark Bekasi', 'l5', [BS], 0, 0),
-      card('c17', 'FL 1 - IRIAN SIANTAR', 'l6', [R1, BF], 0, 14),
-      card('c18', 'FL 3 - RAMAYANA TEBING TINGGI', 'l6', [R3, BF], 14, 14),
-      card('c19', 'FL 4 - TRANSMART PEKALONGAN', 'l6', [R4, BF], 0, 14),
-      card('c20', 'FL 2 - CITIMALL KETAPANG', 'l6', [BF, R2], 0, 14)
+      card('c1', 'Lippo Plaza Kendari', 'l1', [], 4, 8, 3),
+      card('c2', 'Citiemart Swalayan Bitung', 'l1', [], 0, 0, 26),
+      card('c3', 'SPLASHBOM - Citimall Ketapang', 'l1', [BS], 0, 0, 800),
+      card('c4', 'Luwes Gentan', 'l2', [R4, BF], 0, 0, 1),
+      card('c5', 'Citimall Prabumulih', 'l2', [R3, BF], 4, 8, 50),
+      card('c6', 'Sallo Mall Sengkang', 'l3', [], 3, 14, 10),
+      card('c7', 'FL 4 - PLAZA LAMONGAN', 'l4', [R4, BF], 15, 15, 400),
+      card('c8', 'FL 3 - MALL MANDAU CITY', 'l4', [R3, BF], 14, 14, 200),
+      card('c9', 'FL 2 - CITIMALL SAMPIT', 'l4', [BF, R2], 14, 14, 5),
+      card('c10', 'FL 1 - TRANSMART PANGKALPINANG', 'l4', [R1, BF], 14, 14, 600),
+      card('c11', 'FL 4 - ROXY JEMBER', 'l5', [R4, BF], 2, 14, 900),
+      card('c12', 'FL 1 - CITIMALL BINJAI', 'l5', [R1, BF], 2, 14, 720),
+      card('c13', 'LF 3 - RAMAYANA PANAM', 'l5', [R3, BF], 1, 15, 500),
+      card('c14', 'FL 2 - CITIMALL BONTANG', 'l5', [BF, R2], 0, 14, 8),
+      card('c15', 'FL 4 - RAMAYANA MADIUN', 'l5', [R4, BF], 0, 14, 1000),
+      card('c16', 'SPLASHBOM - Transpark Bekasi', 'l5', [BS], 0, 0, 300),
+      card('c17', 'FL 1 - IRIAN SIANTAR', 'l6', [R1, BF], 0, 14, 60),
+      card('c18', 'FL 3 - RAMAYANA TEBING TINGGI', 'l6', [R3, BF], 14, 14, 2),
+      card('c19', 'FL 4 - TRANSMART PEKALONGAN', 'l6', [R4, BF], 0, 14, 150),
+      card('c20', 'FL 2 - CITIMALL KETAPANG', 'l6', [BF, R2], 0, 14, 15)
     ];
 
     // Sample descriptions — same "Key : value" layout used on the real board,
@@ -80,11 +83,46 @@
     };
     CARDS.forEach(function (c) { c.desc = DESCS[c.id] || ''; });
 
+    // Contoh "aktivitas terakhir" per kartu, meniru bentuk respons asli
+    // Trello (GET /1/cards/:id/actions) — supaya tab Progress Checklist &
+    // panel detail matriks bisa menampilkan keterangan tanpa perlu koneksi
+    // Trello sungguhan di mode preview ini.
+    var ACTIVITY_MOCK = {
+      c1: { type: 'commentCard', memberCreator: { fullName: 'Rani' }, data: { text: 'Sudah kirim dokumen ke pihak mall, menunggu approval minggu ini.' } },
+      c4: { type: 'commentCard', memberCreator: { fullName: 'Dova' }, data: { text: 'Nego harga sewa masih berjalan, target selesai pekan depan.' } },
+      c6: { type: 'updateCard', memberCreator: { fullName: 'Rani' }, data: { listBefore: { name: 'ON NEGO' }, listAfter: { name: 'DEAL' } } },
+      c9: { type: 'updateCheckItemStateOnCard', memberCreator: { fullName: 'Budi' }, data: { checkItem: { name: 'Serah terima kunci' } } },
+      c14: { type: 'addAttachmentToCard', memberCreator: { fullName: 'Sinta' }, data: {} },
+      c18: { type: 'commentCard', memberCreator: { fullName: 'Budi' }, data: { text: 'Kontrak sudah ditandatangani kedua pihak.' } }
+    };
+
+    // Shim ringan supaya app.js bisa "berpura-pura" sudah diotorisasi dan
+    // menerima data aktivitas contoh di atas, tanpa memanggil Trello asli.
+    var MOCK_T = {
+      getRestApi: function () {
+        return {
+          isAuthorized: function () { return Promise.resolve(true); },
+          getToken: function () { return Promise.resolve('preview-fake-token'); },
+          authorize: function () { return Promise.resolve('preview-fake-token'); }
+        };
+      }
+    };
+    var _origFetch = window.fetch ? window.fetch.bind(window) : null;
+    window.fetch = function (url) {
+      var m = /\/cards\/([^/]+)\/actions/.exec(String(url));
+      if (m) {
+        var action = ACTIVITY_MOCK[m[1]] || { type: 'updateCard', data: {} };
+        return Promise.resolve({ ok: true, json: function () { return Promise.resolve([action]); } });
+      }
+      return _origFetch ? _origFetch(url) : Promise.reject(new Error('fetch tidak tersedia di mode preview'));
+    };
+
     PipelineMonitor.render({
       el: document.getElementById('root'),
       lists: LISTS,
       cards: CARDS,
       boardName: 'NEW INITIATIVES PIPELINE (preview)',
+      t: MOCK_T,
       onRefresh: function () { alert('Di dalam Trello, tombol ini menarik ulang data board.'); }
     });
   </script>
