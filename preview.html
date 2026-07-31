@@ -83,17 +83,25 @@
     };
     CARDS.forEach(function (c) { c.desc = DESCS[c.id] || ''; });
 
-    // Contoh "aktivitas terakhir" per kartu, meniru bentuk respons asli
-    // Trello (GET /1/cards/:id/actions) — supaya tab Progress Checklist &
-    // panel detail matriks bisa menampilkan keterangan tanpa perlu koneksi
-    // Trello sungguhan di mode preview ini.
+    // Contoh riwayat aktivitas per kartu (terbaru dulu, meniru urutan asli
+    // Trello GET /1/cards/:id/actions) — dipakai tab Progress Checklist &
+    // panel detail matriks di mode preview ini tanpa koneksi Trello asli.
+    // c1 sengaja meniru kasus nyata: edit deskripsi (noise) terjadi SETELAH
+    // komentar Livia — buktikan app.js tetap menampilkan komentarnya, bukan
+    // edit administratif yang lebih baru.
     var ACTIVITY_MOCK = {
-      c1: { type: 'commentCard', memberCreator: { fullName: 'Rani' }, data: { text: 'Sudah kirim dokumen ke pihak mall, menunggu approval minggu ini.' } },
-      c4: { type: 'commentCard', memberCreator: { fullName: 'Dova' }, data: { text: 'Nego harga sewa masih berjalan, target selesai pekan depan.' } },
-      c6: { type: 'updateCard', memberCreator: { fullName: 'Rani' }, data: { listBefore: { name: 'ON NEGO' }, listAfter: { name: 'DEAL' } } },
-      c9: { type: 'updateCheckItemStateOnCard', memberCreator: { fullName: 'Budi' }, data: { checkItem: { name: 'Serah terima kunci' } } },
-      c14: { type: 'addAttachmentToCard', memberCreator: { fullName: 'Sinta' }, data: {} },
-      c18: { type: 'commentCard', memberCreator: { fullName: 'Budi' }, data: { text: 'Kontrak sudah ditandatangani kedua pihak.' } }
+      c1: [
+        { type: 'updateCard', memberCreator: { fullName: 'Livia' }, data: { old: { desc: '...' } } },
+        { type: 'commentCard', memberCreator: { fullName: 'Livia' }, data: { text: 'Menunggu approval mall atas surat tanggapan penawaran kerja sama.' } }
+      ],
+      c4: [{ type: 'commentCard', memberCreator: { fullName: 'Dova' }, data: { text: 'Nego harga sewa masih berjalan, target selesai pekan depan.' } }],
+      c6: [{ type: 'updateCard', memberCreator: { fullName: 'Rani' }, data: { listBefore: { name: 'ON NEGO' }, listAfter: { name: 'DEAL' } } }],
+      c9: [
+        { type: 'updateCheckItemStateOnCard', memberCreator: { fullName: 'Budi' }, data: { checkItem: { name: 'Serah terima kunci' } } },
+        { type: 'commentCard', memberCreator: { fullName: 'Budi' }, data: { text: 'Kunci sudah diserahkan, tinggal tunggu BAST.' } }
+      ],
+      c14: [{ type: 'addAttachmentToCard', memberCreator: { fullName: 'Sinta' }, data: {} }], // no comment/move at all yet
+      c18: [{ type: 'commentCard', memberCreator: { fullName: 'Budi' }, data: { text: 'Kontrak sudah ditandatangani kedua pihak.' } }]
     };
 
     // Shim ringan supaya app.js bisa "berpura-pura" sudah diotorisasi dan
@@ -111,8 +119,8 @@
     window.fetch = function (url) {
       var m = /\/cards\/([^/]+)\/actions/.exec(String(url));
       if (m) {
-        var action = ACTIVITY_MOCK[m[1]] || { type: 'updateCard', data: {} };
-        return Promise.resolve({ ok: true, json: function () { return Promise.resolve([action]); } });
+        var actions = ACTIVITY_MOCK[m[1]] || [{ type: 'updateCard', data: {} }];
+        return Promise.resolve({ ok: true, json: function () { return Promise.resolve(actions); } });
       }
       return _origFetch ? _origFetch(url) : Promise.reject(new Error('fetch tidak tersedia di mode preview'));
     };
