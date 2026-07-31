@@ -61,6 +61,41 @@
     });
   }
 
+  function trunc(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  }
+
+  /* "3 hari lalu" style relative time from an ISO date string (or Date). */
+  function relativeTime(iso) {
+    if (!iso) return '';
+    var d = new Date(iso).getTime();
+    if (isNaN(d)) return '';
+    var diff = Math.max(0, Date.now() - d);
+    var m = Math.floor(diff / 60000);
+    if (m < 1) return 'Baru saja';
+    if (m < 60) return m + ' menit lalu';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + ' jam lalu';
+    var days = Math.floor(h / 24);
+    if (days < 7) return days + ' hari lalu';
+    var weeks = Math.floor(days / 7);
+    if (weeks < 5) return weeks + ' minggu lalu';
+    var months = Math.floor(days / 30);
+    if (months < 12) return months + ' bulan lalu';
+    var years = Math.floor(days / 365);
+    return years + ' tahun lalu';
+  }
+
+  /* True when a card's last activity is older than `days` (default 14) —
+     used for the "Stale" badge in card lists. */
+  function isStale(iso, days) {
+    if (!iso) return false;
+    var d = new Date(iso).getTime();
+    if (isNaN(d)) return false;
+    return (Date.now() - d) > (days || 14) * 86400000;
+  }
+
   /* Stable, deterministic accent color per region/brand name — same name always
      gets the same hue, regardless of sort order or active filter. Purely decorative. */
   function hueFor(name) {
@@ -232,16 +267,21 @@
   function cardRowsHtml(cards) {
     if (!cards.length) return '<p class="muted">Tidak ada kartu.</p>';
     var sorted = cards.slice().sort(function (a, b) {
-      var pa = checklistOf(a).pct, pb = checklistOf(b).pct;
-      if (pa === null && pb === null) return a.name.localeCompare(b.name);
-      if (pa === null) return 1;
-      if (pb === null) return -1;
-      return pa - pb;
+      var da = a.dateLastActivity ? new Date(a.dateLastActivity).getTime() : -Infinity;
+      var db = b.dateLastActivity ? new Date(b.dateLastActivity).getTime() : -Infinity;
+      if (da !== db) return db - da; // most recently updated first
+      return a.name.localeCompare(b.name);
     });
     return '<ul class="cards">' + sorted.map(function (c) {
       var cl = checklistOf(c);
+      var stale = isStale(c.dateLastActivity, 14);
       return '<li>' +
         '<a href="' + esc(c.url || '#') + '" target="_blank" rel="noopener" data-card="' + esc(c.id) + '">' + esc(c.name) + '</a>' +
+        '<div class="cardmeta">' +
+          (c.dateLastActivity ? '<span class="cm-date">' + esc(relativeTime(c.dateLastActivity)) + '</span>' : '') +
+          (stale ? '<span class="cm-stale">Stale</span>' : '') +
+        '</div>' +
+        activityLineHtml(c.id) +
         '<div class="clwrap">' + bar(cl.pct) +
         '<span class="clnum">' + (cl.total ? cl.done + '/' + cl.total : 'tanpa checklist') + '</span></div>' +
         '</li>';
@@ -258,6 +298,137 @@
         cardRowsHtml(cards) + '</section>';
     });
     return h || '<p class="muted">Belum ada kartu dengan checklist.</p>';
+  }
+
+  // --------------------------------------------------------- last activity
+
+  /* Reads the member's latest comment/change per card via Trello's REST API
+     (GET /1/cards/:id/actions). This needs the member to have authorized this
+     Power-Up once (t.getRestApi().authorize) — dateLastActivity itself (used
+     for sorting/relative time above) needs no authorization and always works;
+     only the human-readable "what happened" line needs this. */
+
+  var ACTIVITY_TTL_MS = 5 * 60 * 1000; // re-fetch at most every 5 minutes
+  var activityCache = {}; // cardId -> { state: 'ok'|'error', at, summary }
+
+  var ACTIVITY_ICONS = {
+    commentCard: '💬', updateCard: '✏️', createCard: '🆕',
+    addMemberToCard: '👤', removeMemberFromCard: '👤',
+    addAttachmentToCard: '📎', updateCheckItemStateOnCard: '✅',
+    addLabelToCard: '🏷️', removeLabelFromCard: '🏷️', addChecklistToCard: '📋'
+  };
+
+  /* Turns one raw Trello /actions entry into a short Indonesian one-liner. */
+  function summarizeAction(a) {
+    if (!a || !a.type) return null;
+    var icon = ACTIVITY_ICONS[a.type] || '🕒';
+    var who = (a.memberCreator && a.memberCreator.fullName) || '';
+    var pre = who ? who + ' ' : '';
+    var d = a.data || {};
+    var text;
+    switch (a.type) {
+      case 'commentCard':
+        text = (who ? who + ': ' : '') + (d.text || '');
+        break;
+      case 'updateCard':
+        if (d.listBefore && d.listAfter) text = pre + 'memindahkan ke ' + d.listAfter.name;
+        else if (d.old && 'due' in d.old) text = pre + 'mengubah target tanggal';
+        else if (d.old && 'closed' in d.old) text = (d.card && d.card.closed) ? 'Kartu diarsipkan' : 'Kartu dibuka kembali';
+        else if (d.old && 'name' in d.old) text = pre + 'mengganti nama kartu';
+        else if (d.old && 'desc' in d.old) text = pre + 'memperbarui deskripsi';
+        else text = pre + 'memperbarui kartu';
+        break;
+      case 'createCard': text = pre + 'membuat kartu'; break;
+      case 'addMemberToCard': text = pre + 'menambahkan anggota'; break;
+      case 'removeMemberFromCard': text = pre + 'menghapus anggota'; break;
+      case 'addAttachmentToCard': text = pre + 'menambahkan lampiran'; break;
+      case 'updateCheckItemStateOnCard': text = pre + 'mencentang "' + ((d.checkItem && d.checkItem.name) || '') + '"'; break;
+      case 'addLabelToCard': text = pre + 'menambahkan label'; break;
+      case 'removeLabelFromCard': text = pre + 'menghapus label'; break;
+      case 'addChecklistToCard': text = pre + 'menambahkan checklist'; break;
+      default: text = pre + 'ada aktivitas';
+    }
+    return { icon: icon, text: text.trim() };
+  }
+
+  /* Runs `worker` over `items` with at most `n` in flight at once. */
+  function runPool(items, worker, n) {
+    var i = 0, active = 0;
+    return new Promise(function (resolve) {
+      if (!items.length) return resolve();
+      function next() {
+        if (i >= items.length && active === 0) return resolve();
+        while (active < n && i < items.length) {
+          var item = items[i++];
+          active++;
+          worker(item).then(done, done);
+        }
+        function done() { active--; next(); }
+      }
+      next();
+    });
+  }
+
+  var activityInFlight = {}; // cardId -> Promise, so overlapping hydrateActivity()
+                             // calls (e.g. the auth-check redraw) don't double-fetch.
+
+  function fetchCardActivity(t, cardId) {
+    var cached = activityCache[cardId];
+    if (cached && (Date.now() - cached.at) < ACTIVITY_TTL_MS) return Promise.resolve(cached);
+    if (activityInFlight[cardId]) return activityInFlight[cardId];
+
+    var p = t.getRestApi().getToken().then(function (token) {
+      if (!token) return { state: 'unauthorized', at: Date.now() };
+      var key = (typeof TRELLO_APP_KEY !== 'undefined' && TRELLO_APP_KEY) || '';
+      var url = 'https://api.trello.com/1/cards/' + encodeURIComponent(cardId) +
+        '/actions?filter=all&limit=1&key=' + encodeURIComponent(key) + '&token=' + encodeURIComponent(token);
+      return fetch(url).then(function (res) {
+        if (!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      }).then(function (actions) {
+        var entry = { state: 'ok', at: Date.now(), summary: summarizeAction(actions && actions[0]) };
+        activityCache[cardId] = entry;
+        return entry;
+      }).catch(function () {
+        var entry = { state: 'error', at: Date.now() };
+        activityCache[cardId] = entry;
+        return entry;
+      });
+    }).then(function (entry) { delete activityInFlight[cardId]; return entry; });
+
+    activityInFlight[cardId] = p;
+    return p;
+  }
+
+  function activityLineHtml(cardId) {
+    return '<div class="card-activity" data-card="' + esc(cardId) + '"><span class="skeleton">Memuat aktivitas…</span></div>';
+  }
+
+  /* After a card list has been inserted into the DOM, fill in each
+     `.card-activity` placeholder with the real last-comment/activity line
+     (bounded concurrency so a big list doesn't fire 60 requests at once). */
+  function hydrateActivity(scope, t) {
+    var els = Array.prototype.slice.call(scope.querySelectorAll('.card-activity[data-card]'));
+    if (!els.length) return;
+    if (!t || !t.getRestApi) {
+      els.forEach(function (el) { el.innerHTML = '<span class="muted">Aktivitas butuh mode Power-Up</span>'; });
+      return;
+    }
+    t.getRestApi().isAuthorized().then(function (authed) {
+      if (!authed) {
+        els.forEach(function (el) { el.innerHTML = '<span class="muted">Klik "Aktifkan Aktivitas" di atas</span>'; });
+        return;
+      }
+      runPool(els, function (el) {
+        return fetchCardActivity(t, el.dataset.card).then(function (entry) {
+          if (entry.state === 'ok' && entry.summary) {
+            el.innerHTML = '<span class="act-icon">' + esc(entry.summary.icon) + '</span><span class="act-text">' + esc(trunc(entry.summary.text, 72)) + '</span>';
+          } else {
+            el.innerHTML = '<span class="muted">Tidak ada aktivitas terbaca</span>';
+          }
+        });
+      }, 6);
+    });
   }
 
   // ------------------------------------------------------------- geo / map
@@ -538,6 +709,14 @@
     '.clwrap .bar{flex:1;margin:0}',
     '.clnum{font-size:11px;color:var(--muted);white-space:nowrap;font-weight:600}',
 
+    '.cardmeta{display:flex;align-items:center;gap:6px;margin:-4px 0 6px}',
+    '.cm-date{font-size:10.5px;color:var(--faint);font-weight:600}',
+    '.cm-stale{font-size:9.5px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:999px;padding:1px 7px;letter-spacing:.2px}',
+    '.card-activity{font-size:11px;color:var(--muted);margin:0 0 8px;line-height:1.4;display:flex;gap:5px;align-items:flex-start}',
+    '.card-activity .act-icon{flex:none}',
+    '.card-activity .act-text{overflow-wrap:anywhere}',
+    '.card-activity .skeleton{color:var(--faint);font-style:italic}',
+
     '.clgroup{margin-bottom:22px}',
     '.clgroup h3{font-size:13px;margin:0 0 10px;font-weight:700;display:flex;align-items:center}',
     '.clgroup small{font-weight:500;color:var(--muted);margin-left:6px}',
@@ -562,7 +741,17 @@
   /* opts: { el, lists, cards, boardName, onOpenCard, onRefresh } */
   function render(opts) {
     var el = opts.el;
-    var state = { brand: '__all__', tab: 'matrix', sel: null };
+    var state = { brand: '__all__', tab: 'matrix', sel: null, authorized: null };
+
+    function checkAuth() {
+      if (opts.t && opts.t.getRestApi) {
+        opts.t.getRestApi().isAuthorized().then(function (a) {
+          state.authorized = a; draw();
+        }).catch(function () { state.authorized = false; draw(); });
+      } else {
+        state.authorized = false;
+      }
+    }
 
     if (!document.getElementById('pm-styles')) {
       var st = document.createElement('style');
@@ -586,6 +775,9 @@
         '<p>' + agg.grand.count + ' kartu · ' + agg.regions.length + ' region · diperbarui otomatis dari board Trello</p></div>' +
         '<div class="controls">' +
         '<select id="pm-brand" class="pm-select">' + brandOpts + '</select>' +
+        (opts.t && opts.t.getRestApi && state.authorized !== true
+          ? '<button id="pm-authorize" class="pm-btn" title="Sekali klik, agar tanggal & keterangan aktivitas terakhir tiap kartu bisa ditampilkan">Aktifkan Aktivitas</button>'
+          : '') +
         '<button id="pm-csv" class="pm-btn">' + ICON_DOWNLOAD + ' Export CSV</button>' +
         '<button id="pm-refresh" class="pm-btn primary">' + ICON_REFRESH + ' Refresh</button>' +
         '</div></div>' +
@@ -613,6 +805,14 @@
       Array.prototype.forEach.call(el.querySelectorAll('.tabs button'), function (b) {
         b.onclick = function () { state.tab = b.dataset.tab; draw(); };
       });
+      var authBtn = el.querySelector('#pm-authorize');
+      if (authBtn) {
+        authBtn.onclick = function () {
+          opts.t.getRestApi().authorize({ scope: 'read', expiration: 'never' }).then(function () {
+            state.authorized = true; draw();
+          }).catch(function () { /* member cancelled — stay unauthorized */ });
+        };
+      }
 
       Array.prototype.forEach.call(el.querySelectorAll('td.cell[data-region]'), function (td) {
         function open() {
@@ -626,6 +826,7 @@
             ' <span class="muted">(' + st.count + ' kartu' +
             (st.pct === null ? '' : ', kesiapan ' + st.pct + '%') + ')</span></h2>' + cardRowsHtml(st.cards) + '</div>';
           bindCardLinks(d);
+          hydrateActivity(d, opts.t);
           if (d.scrollIntoView) d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
         td.onclick = open;
@@ -633,6 +834,7 @@
       });
 
       bindCardLinks(el);
+      hydrateActivity(el, opts.t);
 
       if (opts.onOpenCard) {
         Array.prototype.forEach.call(el.querySelectorAll('.geo-dot[data-card]'), function (g) {
@@ -651,6 +853,7 @@
     }
 
     draw();
+    checkAuth();
   }
 
   function exportCsv(agg, boardName) {
@@ -680,7 +883,8 @@
     render: render,
     _helpers: {
       regionOf: regionOf, brandsOf: brandsOf, checklistOf: checklistOf, stripNumber: stripNumber, hueFor: hueFor,
-      parseCoordToken: parseCoordToken, parseCardMeta: parseCardMeta, geoX: geoX, geoY: geoY
+      parseCoordToken: parseCoordToken, parseCardMeta: parseCardMeta, geoX: geoX, geoY: geoY,
+      relativeTime: relativeTime, isStale: isStale, summarizeAction: summarizeAction, cardRowsHtml: cardRowsHtml
     }
   };
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));

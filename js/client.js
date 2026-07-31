@@ -21,5 +21,8 @@
         }
       }];
     }
+  }, {
+    appKey: TRELLO_APP_KEY,
+    appName: TRELLO_APP_NAME
   });
 })();
