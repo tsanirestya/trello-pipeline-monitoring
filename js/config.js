@@ -6,5 +6,5 @@
    Generate/rotate at: https://trello.com/power-ups/6a6ad77437d17bf7584b0da7/api-key
    IMPORTANT: also add https://trello.transentertainment.id to "Allowed Origins"
    on that same page, or the authorize popup will be rejected by Trello. */
-var TRELLO_APP_KEY = 'PASTE_YOUR_TRELLO_API_KEY_HERE';
+var TRELLO_APP_KEY = '7222e44f0b55d64e29c970502c3fe647';
 var TRELLO_APP_NAME = 'Pipeline Monitor';
